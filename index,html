@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGGLuck | Very Good Great Luck</title>
+    <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --green: #00ff41; --bg: #050505; --card: #121212; }
+        body {
+            background: var(--bg); color: white; font-family: 'Dela Gothic One', cursive;
+            margin: 0; display: grid; grid-template-columns: 260px 1fr; height: 100vh;
+        }
+        .sidebar { background: #000; padding: 25px; border-right: 1px solid #1a1a1a; display: flex; flex-direction: column; gap: 20px; }
+        .logo { color: var(--green); font-size: 28px; text-shadow: 0 0 10px var(--green); margin-bottom: 30px; }
+        .nav-btn { display: flex; align-items: center; gap: 12px; color: #888; cursor: pointer; transition: 0.3s; text-decoration: none; }
+        .nav-btn:hover, .active { color: var(--green); }
+        
+        .main { padding: 40px; overflow-y: auto; }
+        .create-area { max-width: 700px; margin: 0 auto; background: var(--card); padding: 30px; border-radius: 20px; border: 1px solid #222; }
+        textarea {
+            width: 100%; background: #000; border: 1px solid var(--green); color: #fff;
+            padding: 15px; border-radius: 12px; font-family: 'Dela Gothic One'; margin-bottom: 20px; outline: none; resize: vertical;
+        }
+        .vgg-btn {
+            background: var(--green); color: #000; border: none; width: 100%;
+            padding: 18px; border-radius: 40px; font-family: 'Dela Gothic One'; font-size: 20px; cursor: pointer; transition: 0.2s;
+        }
+        .vgg-btn:hover { transform: scale(1.02); box-shadow: 0 0 15px var(--green); }
+        .vgg-btn:disabled { background: #004d1a; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        .track-list { margin-top: 40px; }
+        .track-item { 
+            display: flex; justify-content: space-between; padding: 15px; 
+            border-bottom: 1px solid #222; font-size: 14px; align-items: center;
+        }
+        .track-item:hover { background: rgba(0, 255, 65, 0.05); }
+        #status { color: var(--green); font-size: 12px; margin-top: 15px; text-align: center; min-height: 18px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="logo">VGGLUCK</div>
+    <div class="nav-btn active"><i data-lucide="plus-square"></i> CREATE</div>
+    <div class="nav-btn"><i data-lucide="layers"></i> LIBRARY</div>
+    <div class="nav-btn"><i data-lucide="globe"></i> EXPLORE</div>
+    <div id="auth-section" style="margin-top: auto;">
+        <button onclick="signIn()" class="vgg-btn" style="font-size: 14px; padding: 10px;">LOGIN</button>
+    </div>
+</div>
+
+<div class="main">
+    <div class="create-area">
+        <h2 style="margin-top:0">CREATE MUSIC</h2>
+        <textarea id="prompt" rows="4" placeholder="Опишите музыку, которую хотите создать..."></textarea>
+        <button id="genBtn" class="vgg-btn">GENERATE</button>
+        <div id="status"></div>
+    </div>
+
+    <div class="track-list">
+        <h3>MY COLLECTION</h3>
+        <div id="tracks-container">
+            </div>
+    </div>
+</div>
+
+<script type="module">
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+    // SUPABASE CONFIG
+    const SB_URL = "https://aznqfqyurahcrubsdlys.supabase.co";
+    const SB_KEY = "sb_publishable_eRQN_WGceFiA0J8dpCE-QA_2NnWGtMi";
+    const supabase = window.supabase.createClient(SB_URL, SB_KEY);
+
+    const genBtn = document.getElementById('genBtn');
+    const status = document.getElementById('status');
+    const tracksContainer = document.getElementById('tracks-container');
+
+    // Загрузка истории из SQL
+    async function fetchTracks() {
+        const { data, error } = await supabase
+            .from('tracks')
+            .select('*')
+            .order('created_at', { ascending: false });
+        
+        if (data) {
+            tracksContainer.innerHTML = data.map(t => `
+                <div class="track-item">
+                    <div>
+                        <div style="color:var(--green)">${t.title || 'Untitled'}</div>
+                        <div style="font-size:10px; color:#555">${new Date(t.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <a href="${t.audio_url || '#'}" target="_blank" style="color:#fff; text-decoration:none; border:1px solid var(--green); padding:5px 10px; border-radius:5px">OPEN</a>
+                </div>
+            `).join('');
+        }
+    }
+
+    // Логика генерации
+    genBtn.onclick = async () => {
+        const promptText = document.getElementById('prompt').value;
+        if(!promptText) return alert("Введите описание для генерации!");
+
+        genBtn.disabled = true;
+        status.innerText = "⌛ INITIALIZING AI ENGINE...";
+
+        try {
+            // Запуск MusicGen прямо в браузере (WebGPU)
+            const synthesizer = await pipeline('text-to-audio', 'Xenova/musicgen-small');
+            
+            status.innerText = "🎵 COMPOSING MUSIC...";
+            const output = await synthesizer(promptText);
+            
+            status.innerText = "💾 SAVING TO VGGLUCK DATABASE...";
+            
+            // Получаем ID пользователя
+            const { data: { user } } = await supabase.auth.getUser();
+
+            // Сохраняем результат в таблицу tracks
+            const { error } = await supabase.from('tracks').insert([{
+                title: promptText.substring(0, 25),
+                prompt: promptText,
+                user_id: user?.id || null // Сохранит null если не залогинен, либо укажи дефолтный UUID
+            }]);
+
+            if (error) throw error;
+
+            status.innerText = "✅ SUCCESSFUL!";
+            fetchTracks();
+        } catch (e) {
+            console.error(e);
+            status.innerText = "❌ ERROR: Check console or WebGPU support.";
+        }
+        genBtn.disabled = false;
+    };
+
+    // Авторизация (Google)
+    window.signIn = async () => {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin }
+        });
+    };
+
+    // Стартовая загрузка
+    lucide.createIcons();
+    fetchTracks();
+</script>
+
+</body>
+</html>
