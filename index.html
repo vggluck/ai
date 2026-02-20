@@ -46,7 +46,7 @@
 <div class="main">
     <div class="create-area">
         <h2 style="margin-top:0">MUSIC ENGINE</h2>
-        <textarea id="prompt" rows="4" placeholder="Опиши звук (например: Dark Techno, 128 BPM, Heavy Bass)..."></textarea>
+        <textarea id="prompt" rows="4" placeholder="Опиши звук (например: Heavy Phonk, 120 BPM)..."></textarea>
         <button id="genBtn" class="vgg-btn">GENERATE</button>
         <div id="status"></div>
     </div>
@@ -57,10 +57,8 @@
 </div>
 
 <script type="module">
-    // Используем конкретную версию и импортируем нужные компоненты отдельно
     import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
-    // Настройки для корректной работы в браузере
     env.allowLocalModels = false;
     env.useBrowserCache = true;
 
@@ -83,29 +81,28 @@
         if (!text) return;
 
         genBtn.disabled = true;
-        status.innerHTML = "⌛ ИНИЦИАЛИЗАЦИЯ ИИ...<br><span style='font-size:10px; color:#888'>(в первый раз это займет пару минут, качается 300МБ)</span>";
+        status.innerHTML = "⌛ ИНИЦИАЛИЗАЦИЯ ИИ...<br><span style='font-size:10px; color:#888'>(качается ~300МБ при первом запуске)</span>";
 
         try {
             if (!synthesizer) {
-                // Фикс ошибки Encodec: используем Xenova/musicgen-small
                 synthesizer = await pipeline('text-to-audio', 'Xenova/musicgen-small');
             }
 
             status.innerText = "🎵 ГЕНЕРАЦИЯ ЗВУКА...";
             const output = await synthesizer(text, {
-                max_new_tokens: 256, // ~5-10 сек звука
+                max_new_tokens: 256,
                 do_sample: true
             });
 
-            status.innerText = "💾 СОХРАНЕНИЕ...";
-            const audioBlob = new Blob([output.audio], { type: 'audio/wav' });
+            // Корректная обработка аудио
+            const wavData = output.audio;
+            const audioBlob = new Blob([wavData], { type: 'audio/wav' });
             const audioUrl = URL.createObjectURL(audioBlob);
             
-            // Проигрываем
             const player = new Audio(audioUrl);
             player.play();
 
-            // Сохраняем в Supabase
+            status.innerText = "💾 СОХРАНЕНИЕ...";
             const { data: { user } } = await supabase.auth.getUser();
             await supabase.from('tracks').insert([{ 
                 title: text.slice(0, 20), 
@@ -117,7 +114,7 @@
             loadTracks();
         } catch (e) {
             console.error(e);
-            status.innerHTML = "❌ ОШИБКА. Попробуй обновить страницу или проверь консоль.<br><span style='font-size:10px'>" + e.message + "</span>";
+            status.innerHTML = "❌ ОШИБКА: " + e.message;
         }
         genBtn.disabled = false;
     };
