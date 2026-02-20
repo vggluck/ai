@@ -3,129 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VGGLuck | Music Engine</title>
+    <title>VGGLuck | AI Music Engine</title>
     <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root { --green: #00ff41; --bg: #050505; --card: #121212; }
         body {
             background: var(--bg); color: white; font-family: 'Dela Gothic One', cursive;
-            margin: 0; display: grid; grid-template-columns: 260px 1fr; height: 100vh;
+            margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center;
         }
-        .sidebar { background: #000; padding: 25px; border-right: 1px solid #1a1a1a; display: flex; flex-direction: column; gap: 20px; }
-        .logo { color: var(--green); font-size: 28px; text-shadow: 0 0 10px var(--green); margin-bottom: 30px; }
-        .nav-btn { display: flex; align-items: center; gap: 12px; color: #888; cursor: pointer; transition: 0.3s; text-decoration: none; }
-        .nav-btn:hover, .active { color: var(--green); }
-        .main { padding: 40px; overflow-y: auto; }
-        .create-area { max-width: 700px; margin: 0 auto; background: var(--card); padding: 30px; border-radius: 20px; border: 1px solid #222; }
+        .container { max-width: 600px; width: 100%; background: var(--card); padding: 30px; border-radius: 20px; border: 1px solid #222; text-align: center; }
+        h1 { color: var(--green); text-shadow: 0 0 10px var(--green); }
         textarea {
             width: 100%; background: #000; border: 1px solid var(--green); color: #fff;
-            padding: 15px; border-radius: 12px; font-family: 'Dela Gothic One'; margin-bottom: 20px; outline: none; resize: vertical;
+            padding: 15px; border-radius: 12px; font-family: inherit; margin-bottom: 20px; outline: none; box-sizing: border-box;
         }
         .vgg-btn {
             background: var(--green); color: #000; border: none; width: 100%;
-            padding: 18px; border-radius: 40px; font-family: 'Dela Gothic One'; font-size: 20px; cursor: pointer; transition: 0.2s;
+            padding: 18px; border-radius: 40px; font-family: inherit; font-size: 18px; cursor: pointer; transition: 0.2s;
         }
         .vgg-btn:hover { transform: scale(1.02); box-shadow: 0 0 15px var(--green); }
         .vgg-btn:disabled { background: #444; cursor: not-allowed; opacity: 0.6; }
-        #status { color: var(--green); font-size: 12px; margin-top: 15px; text-align: center; min-height: 18px; line-height: 1.4; }
-        .track-item { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid #222; font-size: 14px; }
+        
+        /* Стили плеера */
+        #result-area { margin-top: 30px; display: none; background: #1a1a1a; padding: 20px; border-radius: 15px; }
+        audio { width: 100%; margin-bottom: 15px; filter: invert(100%) hue-rotate(90deg) brightness(1.5); }
+        .download-link {
+            color: var(--green); text-decoration: none; border: 1px solid var(--green);
+            padding: 10px 20px; border-radius: 20px; display: inline-block; font-size: 14px; transition: 0.3s;
+        }
+        .download-link:hover { background: var(--green); color: #000; }
+        #status { color: #888; font-size: 12px; margin-top: 15px; line-height: 1.4; }
     </style>
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="logo">VGGLUCK</div>
-    <div class="nav-btn active"><i data-lucide="plus-square"></i> CREATE</div>
-    <div id="auth-section" style="margin-top: auto;">
-        <button onclick="signIn()" id="loginBtn" class="vgg-btn" style="font-size: 14px; padding: 10px;">ВХОД</button>
-    </div>
-</div>
+<div class="container">
+    <h1>VGGLUCK AI</h1>
+    <textarea id="prompt" rows="3" placeholder="Напр: Heavy Phonk, Dark Bass, 120 BPM..."></textarea>
+    <button id="genBtn" class="vgg-btn">GENERATE TRACK</button>
+    <div id="status"></div>
 
-<div class="main">
-    <div class="create-area">
-        <h2 style="margin-top:0">MUSIC ENGINE</h2>
-        <textarea id="prompt" rows="4" placeholder="Опиши звук (например: Heavy Phonk, 120 BPM)..."></textarea>
-        <button id="genBtn" class="vgg-btn">GENERATE</button>
-        <div id="status"></div>
-    </div>
-    <div style="margin-top: 40px;">
-        <h3>COLLECTION</h3>
-        <div id="tracks-container"></div>
+    <div id="result-area">
+        <h3 style="margin-top:0">YOUR TRACK IS READY</h3>
+        <audio id="audioPlayer" controls></audio>
+        <br>
+        <a id="downloadBtn" class="download-link" download="vggluck_track.wav">📥 DOWNLOAD .WAV</a>
     </div>
 </div>
 
 <script type="module">
+    // ФИКС ОШИБКИ: Используем версию 2.17.2, где MusicGen стабилен
     import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
+    // Настройки окружения
     env.allowLocalModels = false;
     env.useBrowserCache = true;
 
-    const SB_URL = "https://aznqfqyurahcrubsdlys.supabase.co";
-    const SB_KEY = "sb_publishable_eRQN_WGceFiA0J8dpCE-QA_2NnWGtMi";
-    const supabase = window.supabase.createClient(SB_URL, SB_KEY);
-
     const genBtn = document.getElementById('genBtn');
     const status = document.getElementById('status');
-
-    window.signIn = async () => {
-        const email = prompt("Email:");
-        if (email) await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
-    };
+    const resultArea = document.getElementById('result-area');
+    const audioPlayer = document.getElementById('audioPlayer');
+    const downloadBtn = document.getElementById('downloadBtn');
 
     let synthesizer = null;
 
     genBtn.onclick = async () => {
         const text = document.getElementById('prompt').value;
-        if (!text) return;
+        if (!text) return alert("Промпт пустой!");
 
         genBtn.disabled = true;
-        status.innerHTML = "⌛ ИНИЦИАЛИЗАЦИЯ ИИ...<br><span style='font-size:10px; color:#888'>(качается ~300МБ при первом запуске)</span>";
+        resultArea.style.display = 'none';
+        status.innerHTML = "⌛ ИНИЦИАЛИЗАЦИЯ ИИ...<br><span style='font-size:10px'>(в первый раз качается ~300МБ)</span>";
 
         try {
+            // Загрузка модели (без Unsupported model type)
             if (!synthesizer) {
                 synthesizer = await pipeline('text-to-audio', 'Xenova/musicgen-small');
             }
 
-            status.innerText = "🎵 ГЕНЕРАЦИЯ ЗВУКА...";
+            status.innerText = "🎵 ГЕНЕРАЦИЯ МУЗЫКИ... (это займет 1-2 минуты)";
+            
             const output = await synthesizer(text, {
-                max_new_tokens: 256,
+                max_new_tokens: 256, // ~5-7 секунд аудио
                 do_sample: true
             });
 
-            // Корректная обработка аудио
-            const wavData = output.audio;
-            const audioBlob = new Blob([wavData], { type: 'audio/wav' });
+            // КОНВЕРТАЦИЯ В WAV
+            // output.audio - это Float32Array. Браузеру нужен Blob.
+            const audioBlob = makeWavBlob(output.audio, output.sampling_rate);
             const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Настройка плеера и кнопки скачивания
+            audioPlayer.src = audioUrl;
+            downloadBtn.href = audioUrl;
             
-            const player = new Audio(audioUrl);
-            player.play();
+            status.innerText = "✅ ГОТОВО!";
+            resultArea.style.display = 'block';
+            audioPlayer.play();
 
-            status.innerText = "💾 СОХРАНЕНИЕ...";
-            const { data: { user } } = await supabase.auth.getUser();
-            await supabase.from('tracks').insert([{ 
-                title: text.slice(0, 20), 
-                prompt: text, 
-                user_id: user?.id 
-            }]);
-
-            status.innerText = "✅ ГОТОВО! СЛУШАЙ!";
-            loadTracks();
         } catch (e) {
             console.error(e);
-            status.innerHTML = "❌ ОШИБКА: " + e.message;
+            status.innerText = "❌ ОШИБКА: " + e.message;
         }
         genBtn.disabled = false;
     };
 
-    async function loadTracks() {
-        const { data } = await supabase.from('tracks').select('*').order('created_at', { ascending: false });
-        if (data) document.getElementById('tracks-container').innerHTML = data.map(t => `<div class="track-item"><span>${t.title}</span><span>${new Date(t.created_at).toLocaleDateString()}</span></div>`).join('');
-    }
+    // Функция для создания правильного WAV файла из данных модели
+    function makeWavBlob(audioData, samplingRate) {
+        const buffer = new ArrayBuffer(44 + audioData.length * 2);
+        const view = new DataView(buffer);
 
-    lucide.createIcons();
-    loadTracks();
+        const writeString = (offset, string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 32 + audioData.length * 2, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, samplingRate, true);
+        view.setUint32(28, samplingRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, audioData.length * 2, true);
+
+        let offset = 44;
+        for (let i = 0; i < audioData.length; i++) {
+            const s = Math.max(-1, Math.min(1, audioData[i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            offset += 2;
+        }
+
+        return new Blob([buffer], { type: 'audio/wav' });
+    }
 </script>
 </body>
 </html>
