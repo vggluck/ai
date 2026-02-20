@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VGGLuck | Very Good Great Luck</title>
+    <title>VGGLuck | Music Engine</title>
     <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -17,7 +17,6 @@
         .logo { color: var(--green); font-size: 28px; text-shadow: 0 0 10px var(--green); margin-bottom: 30px; }
         .nav-btn { display: flex; align-items: center; gap: 12px; color: #888; cursor: pointer; transition: 0.3s; text-decoration: none; }
         .nav-btn:hover, .active { color: var(--green); }
-        
         .main { padding: 40px; overflow-y: auto; }
         .create-area { max-width: 700px; margin: 0 auto; background: var(--card); padding: 30px; border-radius: 20px; border: 1px solid #222; }
         textarea {
@@ -29,14 +28,9 @@
             padding: 18px; border-radius: 40px; font-family: 'Dela Gothic One'; font-size: 20px; cursor: pointer; transition: 0.2s;
         }
         .vgg-btn:hover { transform: scale(1.02); box-shadow: 0 0 15px var(--green); }
-        .vgg-btn:disabled { background: #004d1a; cursor: not-allowed; transform: none; box-shadow: none; }
-
-        .track-list { margin-top: 40px; }
-        .track-item { 
-            display: flex; justify-content: space-between; padding: 15px; 
-            border-bottom: 1px solid #222; font-size: 14px; align-items: center;
-        }
-        #status { color: var(--green); font-size: 12px; margin-top: 15px; text-align: center; min-height: 18px; }
+        .vgg-btn:disabled { background: #444; cursor: not-allowed; opacity: 0.6; }
+        #status { color: var(--green); font-size: 12px; margin-top: 15px; text-align: center; min-height: 18px; line-height: 1.4; }
+        .track-item { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid #222; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -44,28 +38,31 @@
 <div class="sidebar">
     <div class="logo">VGGLUCK</div>
     <div class="nav-btn active"><i data-lucide="plus-square"></i> CREATE</div>
-    <div class="nav-btn"><i data-lucide="layers"></i> LIBRARY</div>
     <div id="auth-section" style="margin-top: auto;">
-        <button onclick="signIn()" id="loginBtn" class="vgg-btn" style="font-size: 14px; padding: 10px;">ВХОД ПО ПОЧТЕ</button>
+        <button onclick="signIn()" id="loginBtn" class="vgg-btn" style="font-size: 14px; padding: 10px;">ВХОД</button>
     </div>
 </div>
 
 <div class="main">
     <div class="create-area">
         <h2 style="margin-top:0">MUSIC ENGINE</h2>
-        <textarea id="prompt" rows="4" placeholder="Опиши звук (например: Heavy Phonk, 120 BPM, Dark Synth)..."></textarea>
+        <textarea id="prompt" rows="4" placeholder="Опиши звук (например: Dark Techno, 128 BPM, Heavy Bass)..."></textarea>
         <button id="genBtn" class="vgg-btn">GENERATE</button>
         <div id="status"></div>
     </div>
-
-    <div class="track-list">
-        <h3>MY COLLECTION</h3>
+    <div style="margin-top: 40px;">
+        <h3>COLLECTION</h3>
         <div id="tracks-container"></div>
     </div>
 </div>
 
 <script type="module">
-    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+    // Используем конкретную версию и импортируем нужные компоненты отдельно
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+
+    // Настройки для корректной работы в браузере
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
 
     const SB_URL = "https://aznqfqyurahcrubsdlys.supabase.co";
     const SB_KEY = "sb_publishable_eRQN_WGceFiA0J8dpCE-QA_2NnWGtMi";
@@ -73,70 +70,65 @@
 
     const genBtn = document.getElementById('genBtn');
     const status = document.getElementById('status');
-    const tracksContainer = document.getElementById('tracks-container');
 
-    // 1. ВХОД ЧЕРЕЗ ТВОЙ ДОМЕН (ПО ПОЧТЕ)
     window.signIn = async () => {
-        const email = prompt("Введи свой Email:");
-        if (!email) return;
-        const { error } = await supabase.auth.signInWithOtp({
-            email: email,
-            options: { emailRedirectTo: window.location.origin }
-        });
-        if (error) alert(error.message);
-        else alert("Чекай почту, ссылка там!");
+        const email = prompt("Email:");
+        if (email) await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
     };
 
-    // 2. ГЕНЕРАЦИЯ С ФИКСОМ ОШИБКИ WebGPU
+    let synthesizer = null;
+
     genBtn.onclick = async () => {
-        const promptText = document.getElementById('prompt').value;
-        if(!promptText) return alert("Промпт пустой!");
+        const text = document.getElementById('prompt').value;
+        if (!text) return;
 
         genBtn.disabled = true;
-        status.innerText = "⌛ ЗАПУСК ИИ (ЭТО ЗАЙМЕТ ВРЕМЯ)...";
+        status.innerHTML = "⌛ ИНИЦИАЛИЗАЦИЯ ИИ...<br><span style='font-size:10px; color:#888'>(в первый раз это займет пару минут, качается 300МБ)</span>";
 
         try {
-            // Пробуем WebGPU, если нет - WASM
-            const synthesizer = await pipeline('text-to-audio', 'Xenova/musicgen-small', {
-                device: 'webgpu', 
-            }).catch(() => {
-                console.log("WebGPU fail, switching to WASM...");
-                return pipeline('text-to-audio', 'Xenova/musicgen-small', { device: 'wasm' });
+            if (!synthesizer) {
+                // Фикс ошибки Encodec: используем Xenova/musicgen-small
+                synthesizer = await pipeline('text-to-audio', 'Xenova/musicgen-small');
+            }
+
+            status.innerText = "🎵 ГЕНЕРАЦИЯ ЗВУКА...";
+            const output = await synthesizer(text, {
+                max_new_tokens: 256, // ~5-10 сек звука
+                do_sample: true
             });
 
-            const output = await synthesizer(promptText);
             status.innerText = "💾 СОХРАНЕНИЕ...";
+            const audioBlob = new Blob([output.audio], { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            // Проигрываем
+            const player = new Audio(audioUrl);
+            player.play();
 
+            // Сохраняем в Supabase
             const { data: { user } } = await supabase.auth.getUser();
-            await supabase.from('tracks').insert([{
-                title: promptText.substring(0, 20),
-                prompt: promptText,
-                user_id: user?.id || null
+            await supabase.from('tracks').insert([{ 
+                title: text.slice(0, 20), 
+                prompt: text, 
+                user_id: user?.id 
             }]);
 
-            status.innerText = "✅ ГОТОВО!";
-            fetchTracks();
+            status.innerText = "✅ ГОТОВО! СЛУШАЙ!";
+            loadTracks();
         } catch (e) {
             console.error(e);
-            status.innerText = "❌ ОШИБКА: Проверь консоль (F12)";
+            status.innerHTML = "❌ ОШИБКА. Попробуй обновить страницу или проверь консоль.<br><span style='font-size:10px'>" + e.message + "</span>";
         }
         genBtn.disabled = false;
     };
 
-    async function fetchTracks() {
+    async function loadTracks() {
         const { data } = await supabase.from('tracks').select('*').order('created_at', { ascending: false });
-        if (data) {
-            tracksContainer.innerHTML = data.map(t => `
-                <div class="track-item">
-                    <span>${t.title}</span>
-                    <span style="color:var(--green)">SAVED IN SQL</span>
-                </div>
-            `).join('');
-        }
+        if (data) document.getElementById('tracks-container').innerHTML = data.map(t => `<div class="track-item"><span>${t.title}</span><span>${new Date(t.created_at).toLocaleDateString()}</span></div>`).join('');
     }
 
     lucide.createIcons();
-    fetchTracks();
+    loadTracks();
 </script>
 </body>
 </html>
