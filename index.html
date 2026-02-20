@@ -136,15 +136,21 @@
         }
         genBtn.disabled = false;
     };
+    
+window.signIn = async () => {
+    const email = prompt("Твой Email для входа:");
+    if (!email) return;
+    
+    const { error } = await supabase.auth.signInWithOtp({
+        email: email,
+        options: {
+            emailRedirectTo: window.location.origin,
+        }
+    });
 
-    // Авторизация (Google)
-    window.signIn = async () => {
-        const { data, error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: { redirectTo: window.location.origin }
-        });
-    };
-
+    if (error) alert("Ошибка: " + error.message);
+    else alert("Линк для входа отправлен на почту! Проверь спам.");
+};
     // Стартовая загрузка
     lucide.createIcons();
     fetchTracks();
